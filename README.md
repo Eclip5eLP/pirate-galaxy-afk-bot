@@ -6,6 +6,5 @@
 
 # How to use
 
-Run ``python PGBot.py``<br>
-Start run.bat to start the bot.<br>
+Run ``python PGBot.py`` (Or on windows just start run.bat to start the bot.<br>
 Make sure to have Pirate Galaxy open on your main monitor.
