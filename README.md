@@ -1,0 +1,1 @@
+# pirate-galaxy-afk-bot
