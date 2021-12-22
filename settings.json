@@ -1,0 +1,68 @@
+{
+    "tesseract":"C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+    "conApi":"",
+    "username":"",
+    "priority": [
+        "enemy",
+        "loot",
+        "enemyIdle"
+    ],
+    "search": {
+        "enemy": [135,27,11],
+        "enemyIdle": [162,151,15],
+        "loot": [19,193,217]
+    },
+    "skillset": "custom",
+    "skills": {
+        "storm": [
+            "blaster",
+            "collector",
+            "rocket",
+            "repair",
+            "afterburner",
+            "aimcomp",
+            "perforator",
+            "thermo"
+        ],
+        "tank": [
+            "blaster",
+            "collector",
+            "repair",
+            "afterburner",
+            "shield",
+            "taunt",
+            "scramble",
+            "aggrobomb"
+        ],
+        "engineer": [
+            "blaster",
+            "collector",
+            "repair",
+            "afterburner",
+            "repairtarget",
+            "protector",
+            "repairfield",
+            "resurrect"
+        ],
+        "shock": [
+            "blaster",
+            "collector",
+            "repair",
+            "afterburner",
+            "speedactuator",
+            "stun",
+            "beacon",
+            "stundome"
+        ],
+        "custom": [
+            "blaster",
+            "collector",
+            "repair",
+            "afterburner",
+            "scramble",
+            "protector",
+            "stundome",
+            "orbitalstrike"
+        ]
+    }
+}
