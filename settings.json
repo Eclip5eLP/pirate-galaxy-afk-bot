@@ -1,7 +1,7 @@
 {
-    "tesseract":"C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-    "conApi":"",
-    "username":"",
+    "tesseract": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+    "conApi": "",
+    "username": "",
     "priority": [
         "enemy",
         "loot",
@@ -12,6 +12,11 @@
         "enemyIdle": [162,151,15],
         "loot": [19,193,217]
     },
+    "healOnHp": 25,
+    "defendOnHp": 45,
+    "runOnHp": 10,
+    "lowEnergy": 3000,
+    "showTechUsage": false,
     "skillset": "custom",
     "skills": {
         "storm": [
