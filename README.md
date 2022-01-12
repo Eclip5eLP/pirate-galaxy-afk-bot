@@ -2,7 +2,7 @@
 -Install Tesserract OCR and edit its path in the settings.json<br>
 -Edit your ships weapon configuration in the settings.json<br>
 -Install the following modules using pip:<br>
-``pip install pyautogui keyboard colorama datetime requests pytesseract opencv-python``<br>
+``pip install pyautogui keyboard colorama datetime requests pytesseract opencv-python pypiwin32``<br>
 
 # How to use
 
