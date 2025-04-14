@@ -10,12 +10,11 @@ import pkg_resources
 sys.dont_write_bytecode = True
 
 from importer import Importer
-Importer.verifyLibs({'pyautogui', 'keyboard', 'colorama', 'datetime', 'requests', 'pytesseract', 'opencv-python'})
+Importer.verifyLibs({'pyautogui', 'keyboard', 'colorama', 'datetime', 'requests', 'pytesseract', 'opencv-python', 'pypiwin32'})
 
 # Import Modules
 from colorama import Fore, Back, Style
 from bot import PGBot, BotState
-from windowcapture import WindowCapture
 from time import sleep, time
 import colorama
 import pyautogui
@@ -29,18 +28,16 @@ with open('settings.json') as f:
 	settings = json.load(f)
 
 # Vars
-version = "0.2.1"
-appName = "Pirate Galaxy Bot"
+version = '0.3.1'
+appName = 'Pirate Galaxy Bot'
 
 colorama.init()
-wincap = WindowCapture()
 bot = PGBot(settings, appName, version)
-paused = False
 
 # Start Bot
-bot.terminal(appName + " v" + version + "\n")
-bot.terminal("Made by Eclip5e\n")
-bot.terminal("Initializing...")
+bot.terminal(f'{appName} v{version}', 'info')
+bot.terminal('Made by Eclip5e\n', 'info')
+bot.terminal('Initializing...')
 
 sleep(1)
 bot.start()
@@ -48,7 +45,7 @@ bot.start()
 # Main Loop
 loop_time = time()
 while(True):
-	if not paused:
+	if not bot.paused:
 		# Update bots targets
 		bot.update_targets()
 
@@ -57,7 +54,9 @@ while(True):
 		loop_time = time()
 
 		# Print HP and Energy
-		print(Fore.GREEN + "HP: " + str(bot.plr_hp) + " | " + Fore.LIGHTCYAN_EX + "Energy: " + str(bot.plr_energy) + Fore.WHITE + bot.ws, end="\r")
+		print(f'{Fore.GREEN}HP: {bot.plr_hp} | {Fore.LIGHTCYAN_EX}Energy: {bot.plr_energy}{Fore.WHITE}{bot.ws}', end='\r')
+	else:
+		sleep(0.2)
 
 	# Hotkeys
 	if keyboard.is_pressed('q'): # Quit
@@ -65,14 +64,14 @@ while(True):
 		cv.destroyAllWindows()
 		break
 	if keyboard.is_pressed('p'): # Pause
-		if paused:
-			paused = False
-			print(Fore.LIGHTCYAN_EX + "Unpaused" + Fore.WHITE + bot.ws)
+		if bot.paused:
+			bot.paused = False
+			print(f'{Fore.LIGHTCYAN_EX}Unpaused{Fore.WHITE}{bot.ws}', end='\r')
 			sleep(1)
 		else:
-			paused = True
-			print(Fore.LIGHTCYAN_EX + "Paused" + Fore.WHITE + bot.ws)
+			bot.paused = True
+			print(f'{Fore.LIGHTCYAN_EX}Paused{Fore.WHITE}{bot.ws}', end='\r')
 			sleep(1)
 
 # Quit Application
-bot.terminal(Fore.LIGHTRED_EX + "\nQuit" + Fore.WHITE)
+bot.terminal(f'\nQuit', 'danger')

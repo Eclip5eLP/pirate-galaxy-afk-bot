@@ -11,17 +11,16 @@ sys.dont_write_bytecode = True
 
 from time import sleep, time
 from threading import Thread, Lock
-from colorama import Fore, Back, Style
+from colorama import Fore
 from PIL import Image
-from win32api import GetSystemMetrics
+from pathlib import Path
+import datetime
 import cv2 as cv
 import pyautogui
 import colorama
 import keyboard
 import random
 import win32api, win32ui, win32con
-import requests
-import json
 import pytesseract
 import numpy as np
 import math
@@ -41,30 +40,22 @@ class PGBot:
 	state = None
 	timestamp = None
 
-	appName = "Unknown"
-	version = "0"
-	pytesseract.pytesseract.tesseract_cmd = ""
-	conApi = ""
+	appName = 'UnknownAppOrigin'
+	version = '0.1'
+	pytesseract.pytesseract.tesseract_cmd = ''
 	minimapLoc = [0,0]
-	skills = []
 	updated = False
+	paused = False
 
-	plr_name = ""
 	plr_energy = 0
 	plr_hp = 0
+	dtime = [0,0,0,0,0] # Energy, HP, Map, Collector, NavMenu
 	outliers = [0,0,0,0]
 	lastChat = []
-	objectCount = 0
-	objectPrio = []
-	objectPixel = []
-	healOnHp = 0
-	defendOnHp = 0
-	runOnHp = 0
-	lowEnergy = 0
-	showTechUsage = False
 
 	targets = False
-	lastPrint = "";
+	lastPrint = '';
+	ws = "                     "
 
 	techTree = {"aoe": ["rocket", "orbitalstrike", "aggrobomb", "mine", "stundome", "stickybomb", "magnettrap"], "defend": ["shield", "protector", "scramble", "aggrobeacon"], "single": ["rocket", "orbitalstrike", "stun", "thermoblast", "taunt", "sniper", "attackdroid"], "buff": ["speedactuator", "aimcomp", "perforator", "dmgbuff"]}
 
@@ -75,50 +66,53 @@ class PGBot:
 		self.state = BotState.INIT
 		self.timestamp = time()
 		self.updated = True
-		self.ws = "                     "
 
 		self.version = version
-		pytesseract.pytesseract.tesseract_cmd = settings['tesseract']
+		pytesseract.pytesseract.tesseract_cmd = settings.get('tesseract', "C:/Program Files/Tesseract-OCR/tesseract.exe")
 
 		self.appName = appName
-		self.conApi = settings['conApi']
 		self.minimapLoc = [0,0]
-		presets = settings['skills']
-		self.skills = presets[settings['skillset']]
+		presets = settings.get('presets', {"custom": ["blaster","collector","repair","afterburner","","","",""]})
+		self.skills = presets[settings.get('skillset', 'custom')]
 
-		self.plr_name = settings['username']
 		self.plr_energy = 0
-		self.plr_hp = 0
+		self.plr_hp = 100
 		self.outliers = [0,0,0,0]
 		self.lastChat = []
 		self.objectCount = 0
-		self.objectPrio = settings['priority']
-		self.objectPixel = settings['search']
-		self.healOnHp = settings['healOnHp']
-		self.defendOnHp = settings['defendOnHp']
-		self.runOnHp = settings['runOnHp']
-		self.lowEnergy = settings['lowEnergy']
-		self.showTechUsage = settings['showTechUsage']
+		self.objectPrio = settings.get('priority', ["enemy","loot","enemyIdle"])
+		self.objectPixel = settings.get('search', {"enemy": [135,27,11],"enemyIdle": [162,151,15],"loot": [19,193,217]})
+		self.healOnHp = settings.get('healOnHp', 25)
+		self.defendOnHp = settings.get('defendOnHp', 45)
+		self.runOnHp = settings.get('runOnHp', 10)
+		self.lowEnergy = settings.get('lowEnergy', 1000)
+		self.occasionalSkill = settings.get('occasionalSkill', 150)
+
+		if not Path(pytesseract.pytesseract.tesseract_cmd).exists():
+			self.terminal(f'Cant find pytesseract!', 'danger')
+			exit()
 
 	# Find targets on minimap
 	def update_targets(self):
+		if not self.checkTimePassed(2, 1):
+			return
+
 		targets = self.findObject(True)
 		self.lock.acquire()
 		self.targets = targets
 		self.updated = True
 		self.lock.release()
 
-		if self.state == BotState.FARMING:
-			if self.targets != False:
-				self.moveTo(self.targets)
-				self.interact(self.targets[2])
+		# Check HP with updating and using resources
+		if (self.plr_hp <= self.healOnHp):
+			self.skill(self.checkSkill("repair"))
 
 	# Start the bot
 	def start(self):
 		self.stopped = False
 		t = Thread(target=self.run)
 		t.start()
-		print(Fore.GREEN + "Bot started" + Fore.WHITE)
+		print(f'{Fore.GREEN}Bot started{Fore.WHITE}')
 
 	# Stop the bot
 	def stop(self):
@@ -127,6 +121,10 @@ class PGBot:
 	# Main Bot Logic
 	def run(self):
 		while not self.stopped:
+			if self.paused: # Paused
+				sleep(0.2)
+				continue
+
 			if self.state == BotState.INIT: # Initializing
 				if time() > self.timestamp + self.INIT_TIME:
 					self.lock.acquire()
@@ -134,39 +132,52 @@ class PGBot:
 					self.lock.release()
 
 			elif self.state == BotState.FARMING: # Farming
-				# Chat Decoy
-				#self.checkChat()
-
 				# Check Energy
-				if self.checkEnergy(self.lowEnergy):
-					#self.findEnergy()
-					self.terminal(Fore.LIGHTRED_EX + 'Low Energy! (' + str(self.plr_energy) + ')' + Fore.WHITE + self.ws)
+				if self.checkTimePassed(0, 30):
+					if self.checkEnergy():
+						self.terminal(f'Low Energy! ({self.plr_energy})', 'danger')
 
 				self.checkHP()
 
-				#self.update_targets()
+				# Check if Nav Menu is open
+				if self.checkTimePassed(4, 45):
+					if self.search('orbit') != False:
+						navmenu = self.search('navmenu')
+						if navmenu != False:
+							self.click(navmenu.left + 5, navmenu.top + 5)
 
 				# Battle and Collect
 				if self.targets != False:
-					if self.updated:
-						self.moveTo(self.targets)
-						self.lock.acquire()
-						self.updated = False
-						self.lock.release()
-					self.interact(self.targets[2])
+					# Ignore idle targets if energy is low or if below low hp threshold
+					if self.targets[2] == 'enemyIdle' and (self.plr_energy <= self.lowEnergy or self.plr_hp <= self.healOnHp):
+						continue
+
+					# Use Collector to prevent softlock
+					if self.checkTimePassed(3, 4):
+						self.skill(self.checkSkill("collector"))
+
+					try:
+						if self.updated:
+							self.moveTo(self.targets)
+							self.lock.acquire()
+							self.updated = False
+							self.lock.release()
+						self.interact(self.targets[2])
+					except Exception:
+						pass # Ignore
 
 			elif self.state == BotState.FLEEING: # Fleeing
 				self.checkHP()
 
-				if self.checkSkill("afterburner"):
-					self.skill(self.checkSkill("afterburner"))
+				self.skill(self.checkSkill("afterburner"))
+				self.skill(self.checkSkill("repair"))
 
 				if self.plr_hp >= math.ceil(self.healOnHp / 2):
 					self.lock.acquire()
 					self.state = BotState.FARMING
 					self.lock.release()
 
-	# Scripts #
+	#---# Helper Scripts #---#
 
 	# Click Function
 	def click(self, x,y):
@@ -212,15 +223,12 @@ class PGBot:
 					else:
 						return [x,y]
 		if findAll:
-			if listAll != []:
+			if len(listAll) != 0:
 				return listAll
-			else:
-				return False
 		return False
 
 	# Find Object on Minimap
 	def minimapFind(self, find, nearest = False):
-		elist = []
 		minimap = self.search('minimap')
 		if minimap != False:
 			self.minimapLoc = [minimap.left + 25, minimap.top - 100]
@@ -229,18 +237,16 @@ class PGBot:
 			if found != False:
 				if nearest == False:
 					return found
-				else:
-					elist = found
 			else:
 				return False
 		else:
 			return False
 
 		# Return nearest
-		self.objectCount = len(elist)
+		self.objectCount = len(found)
 		center = [115 / 2, 115 / 2]
 		near = []
-		for loc in elist:
+		for loc in found:
 			if near == []:
 				near = loc
 			else:
@@ -258,16 +264,22 @@ class PGBot:
 		else:
 			return False
 
-	# Check Energy and notify User
-	def checkEnergy(self, num):
-		find = self.search('energy', 0.7)
+	# Check Energy and notify User; returns true if energy is low or below num
+	def checkEnergy(self, num = None):
+		if num is None:
+			num = self.lowEnergy
+
+		find = self.search('energy', 0.72)
 		if find != False:
 			cenergy = pyautogui.screenshot('./data/search/energy.png', region=(find.left - 100, find.top, 100, 20))
 			cenergy = self.getNum(Image.open('./data/search/energy.png')).replace('\x0c', '').replace('\n', '').replace(',','')
-			if cenergy == '':
+			if cenergy == '' or cenergy == ' ':
 				cenergy = 10000
 			else:
-				cenergy = int(cenergy)
+				try:
+					cenergy = int(cenergy)
+				except Exception:
+					cenergy = 0
 
 			# Statistical outliers
 			if self.outliers[2] - cenergy >= 1000 and self.outliers[3] <= 2:
@@ -286,7 +298,8 @@ class PGBot:
 				return True
 			return False
 		else:
-			self.terminal(Fore.LIGHTRED_EX + "Cant find Interface" + Fore.WHITE + self.ws)
+			#self.terminal('Cant find Interface', 'danger')
+			self.plr_energy = 10000
 			return False
 
 	# Find Energy
@@ -316,6 +329,12 @@ class PGBot:
 
 	# Check HP and heal if needed
 	def checkHP(self):
+		if not self.checkTimePassed(1, 2):
+			if (self.plr_hp <= self.healOnHp):
+				self.skill(self.checkSkill("repair"))
+				return True
+			return False
+
 		find = self.search('minimap')
 		if find != False:
 			chp = pyautogui.screenshot('./data/search/hp.png', region=(find.left - 25, find.top + 5, 20, 15))
@@ -326,7 +345,7 @@ class PGBot:
 
 			chp = self.getNum(Image.open('./data/search/hp.png')).replace('\n', '').replace('\x0c', '').replace('|', '')
 			chp = chp[0:int(len(chp)/2)]
-			if chp != '':
+			if chp != '' and chp != ' ':
 				chp = int(chp)
 
 				if chp == 1 or chp == 2:
@@ -337,10 +356,8 @@ class PGBot:
 				self.lock.release()
 
 				if (chp <= self.healOnHp):
-					self.skill(3)
-					if self.showTechUsage:
-						print(Fore.LIGHTCYAN_EX + "Used Repair droid" + Fore.WHITE + self.ws)
-					self.terminal(Fore.LIGHTRED_EX + "Low HP (" + str(self.plr_hp) + ")" + Fore.WHITE + self.ws)
+					self.skill(self.checkSkill("repair"))
+					self.terminal(f'Low HP ({self.plr_hp})', 'danger')
 					return True
 			else:
 				self.lock.acquire()
@@ -354,65 +371,39 @@ class PGBot:
 	def interact(self, act):
 		# Collect Loot
 		if act == "loot":
-			if self.checkSkill("collector"): #Collector
-				self.skill(self.checkSkill("collector"))
+			self.skill(self.checkSkill("collector"))
 
 		# Attack Enemy
 		if act == "enemy" or act == "enemyIdle":
 
-			# AOE Attacks
-			techs = []
-			for tech in self.techTree["aoe"]:
-				if self.checkSkill(tech):
-					techs.append(tech)
-			if self.objectCount >= 5 and len(techs) > 0:
-				use = techs[random.randint(0, len(techs) - 1)]
-				self.skill(self.checkSkill(use))
-				if self.showTechUsage:
-					print(Fore.LIGHTCYAN_EX + "Used " + use + Fore.WHITE + self.ws)
-
-			# Defend
-			techs = []
-			for tech in self.techTree["defend"]:
-				if self.checkSkill(tech):
-					techs.append(tech)
-			if self.plr_hp <= self.defendOnHp and len(techs) > 0:
-				use = techs[random.randint(0, len(techs) - 1)]
-				self.skill(self.checkSkill(use))
-				if self.showTechUsage:
-					print(Fore.LIGHTCYAN_EX + "Used " + use + Fore.WHITE + self.ws)
-
-			# Occasional Attacks
-			techs = []
-			for tech in self.techTree["single"]:
-				if self.checkSkill(tech):
-					techs.append(tech)
-			if random.randint(1, 250) == 1 and len(techs) > 0:
-				use = techs[random.randint(0, len(techs) - 1)]
-				self.skill(self.checkSkill(use))
-				if self.showTechUsage:
-					print(Fore.LIGHTCYAN_EX + "Used " + use + Fore.WHITE + self.ws)
-
-			# Occasional Buffs
-			techs = []
-			for tech in self.techTree["buff"]:
-				if self.checkSkill(tech):
-					techs.append(tech)
-			if random.randint(1, 250) == 1 and len(techs) > 0:
-				use = techs[random.randint(0, len(techs) - 1)]
-				self.skill(self.checkSkill(use))
-				if self.showTechUsage:
-					print(Fore.LIGHTCYAN_EX + "Used " + use + Fore.WHITE + self.ws)
+			# Interaction types
+			self.interactType('aoe')
+			self.interactType('defend')
+			self.interactType('single')
+			self.interactType('buff')
 
 			# Run
 			if self.plr_hp <= self.runOnHp:
-				#self.terminal(Fore.LIGHTRED_EX + "Running away..." + Fore.WHITE + self.ws)
 				self.lock.acquire()
 				self.state = BotState.FLEEING
 				self.lock.release()
 
 			# Always Attack fallback
 			self.skill(1)
+
+	# Interaction types
+	def interactType(self, itype):
+		techs = []
+		for tech in self.techTree[itype]:
+			if self.checkSkill(tech):
+				techs.append(tech)
+
+		cond_aoe = self.objectCount >= 3 and len(techs) > 0
+		cond_defend = self.plr_hp <= self.defendOnHp and len(techs) > 0
+		cond_occasion = random.randint(1, self.occasionalSkill) == 1 and len(techs) > 0
+
+		if (itype == 'aoe' and cond_aoe) or (itype == 'defend' and cond_defend) or ((itype == 'single' or itype == 'buff') and cond_occasion):
+			self.skill(self.checkSkill(techs[random.randint(0, len(techs) - 1)]))
 
 	# Check if User has Skill
 	def checkSkill(self, check):
@@ -425,34 +416,18 @@ class PGBot:
 
 	# Use a Skill
 	def skill(self, num):
-		find = self.search('chatWindow')
-		if find != False:
-			_screenImg = pyautogui.screenshot('./data/search/skills.png', region=(find.left, find.top + 25, 380, 50))
-			keyboard.press(str(num))
-			sleep(0.1)
-			keyboard.release(str(num))
-		else:
+		if num == False or num < 1 or num > 8:
 			return False
-
-	# Check Chat for Username
-	def checkChat(self):
-		find = self.search('mail')
-		if find != False:
-			chat = pyautogui.screenshot('./data/search/chat.png', region=(find.left, find.top + 50, 300, GetSystemMetrics(1) * 0.75))
-			chat = self.getText(Image.open('./data/search/chat.png')).replace('\x0c', '').replace('|', '')
-			for msg in self.lastChat:
-				if len(msg) >= 4:
-					chat = chat.replace(msg, '')
-			if self.plr_name in chat:
-				self.chatSend("hey")
-
-			self.lock.acquire()
-			self.lastChat.append(chat)
-			self.lock.release()
-
-			return True
-		else:
-			return False
+		keyboard.press(str(num))
+		sleep(0.1)
+		keyboard.release(str(num))
+		# find = self.search('chatWindow')
+		# if find != False:
+		# 	keyboard.press(str(num))
+		# 	sleep(0.1)
+		# 	keyboard.release(str(num))
+		# else:
+		# 	return False
 
 	# Send Decoy Message
 	def chatSend(self, msg):
@@ -465,16 +440,29 @@ class PGBot:
 			keyboard.release('enter')
 
 	# Print to local and remote Terminal
-	def terminal(self, text):
+	def terminal(self, text, type='text'):
+		col = Fore.WHITE
+		if type == 'info':
+			col = Fore.LIGHTCYAN_EX
+		if type == 'warn':
+			col = Fore.YELLOW
+		if type == 'danger':
+			col = Fore.LIGHTRED_EX
+
+		ptext = f'{col}{text}{Fore.WHITE}{self.ws}'
 		if text != self.lastPrint:
-			print(text)
+			print(ptext)
 
 			self.lock.acquire()
-			self.lastPrint = text
+			self.lastPrint = ptext
 			self.lock.release()
+		return True
 
-			if self.conApi != "":
-				apiCall = self.conApi + "?app=" + self.appName + "&log=" + text
-				response = requests.get(apiCall)
-				return response
-		return None
+	# Check time passed since last check
+	def checkTimePassed(self, delta, secs):
+		if self.dtime[delta] == 0:
+			self.dtime[delta] = datetime.datetime.fromtimestamp(self.dtime[delta])
+		if datetime.timedelta.total_seconds(datetime.datetime.now()-self.dtime[delta]) >= secs:
+			self.dtime[delta] = datetime.datetime.now()
+			return True
+		return False

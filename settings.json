@@ -1,7 +1,5 @@
 {
-    "tesseract": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-    "conApi": "",
-    "username": "",
+    "tesseract": "C:/Program Files/Tesseract-OCR/tesseract.exe",
     "priority": [
         "enemy",
         "loot",
@@ -12,13 +10,13 @@
         "enemyIdle": [162,151,15],
         "loot": [19,193,217]
     },
-    "healOnHp": 25,
+    "healOnHp": 30,
     "defendOnHp": 45,
     "runOnHp": 10,
-    "lowEnergy": 3000,
-    "showTechUsage": false,
-    "skillset": "custom",
-    "skills": {
+    "lowEnergy": 1000,
+    "occasionalSkill": 150,
+    "skillset": "sniper",
+    "presets": {
         "storm": [
             "blaster",
             "collector",
@@ -59,15 +57,45 @@
             "beacon",
             "stundome"
         ],
+        "sniper": [
+            "blaster",
+            "collector",
+            "repair",
+            "afterburner",
+            "sniper",
+            "attackdroid",
+            "orbitalstrike",
+            "dmgbuff"
+        ],
         "custom": [
             "blaster",
             "collector",
             "repair",
             "afterburner",
-            "scramble",
+            "",
+            "",
+            "",
+            ""
+        ],
+        "chromian": [
+            "blaster",
+            "collector",
+            "repair",
+            "afterburner",
             "protector",
-            "stundome",
-            "orbitalstrike"
+            "speedactuator",
+            "orbitalstrike",
+            "magnettrap"
+        ],
+        "scorpion": [
+            "blaster",
+            "collector",
+            "rocket",
+            "repair",
+            "afterburner",
+            "aimcomp",
+            "scramble",
+            "aggrobomb"
         ]
     }
 }
