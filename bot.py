@@ -57,7 +57,7 @@ class PGBot:
 	lastPrint = '';
 	ws = "                     "
 
-	techTree = {"aoe": ["rocket", "orbitalstrike", "aggrobomb", "mine", "stundome", "stickybomb", "magnettrap"], "defend": ["shield", "protector", "scramble", "aggrobeacon"], "single": ["rocket", "orbitalstrike", "stun", "thermoblast", "taunt", "sniper", "attackdroid"], "buff": ["speedactuator", "aimcomp", "perforator", "dmgbuff"]}
+	techTree = {"aoe": ["rocket", "orbitalstrike", "aggrobomb", "mine", "stundome", "stickybomb", "magnettrap", "aggrobeacon"], "defend": ["shield", "protector", "scramble"], "single": ["rocket", "orbitalstrike", "stun", "thermoblast", "taunt", "sniper", "attackdroid"], "buff": ["speedactuator", "aimcomp", "perforator", "dmgbuff"]}
 
 	# Init
 	def __init__(self, settings, appName, version):
@@ -357,7 +357,7 @@ class PGBot:
 
 				if (chp <= self.healOnHp):
 					self.skill(self.checkSkill("repair"))
-					self.terminal(f'Low HP ({self.plr_hp})', 'danger')
+					#self.terminal(f'Low HP ({self.plr_hp})', 'danger')
 					return True
 			else:
 				self.lock.acquire()
