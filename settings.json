@@ -1,21 +1,32 @@
 {
-    "tesseract": "C:/Program Files/Tesseract-OCR/tesseract.exe",
     "priority": [
         "enemy",
         "loot",
         "enemyIdle"
     ],
     "search": {
-        "enemy": [135,27,11],
-        "enemyIdle": [162,151,15],
-        "loot": [19,193,217]
+        "enemy": [
+            135,
+            27,
+            11
+        ],
+        "enemyIdle": [
+            162,
+            151,
+            15
+        ],
+        "loot": [
+            19,
+            193,
+            217
+        ]
     },
     "healOnHp": 30,
-    "defendOnHp": 45,
+    "defendOnHp": 80,
     "runOnHp": 10,
     "lowEnergy": 1000,
     "occasionalSkill": 150,
-    "skillset": "sniper",
+    "skillset": "chromian",
     "presets": {
         "storm": [
             "blaster",
@@ -72,9 +83,9 @@
             "collector",
             "repair",
             "afterburner",
+            "sniper",
             "",
-            "",
-            "",
+            "orbitalstrike",
             ""
         ],
         "chromian": [

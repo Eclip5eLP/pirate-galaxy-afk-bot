@@ -1,9 +1,7 @@
 # Installation
--Install Tesserract OCR and edit its path in the settings.json<br>
-Possible solution to install Tesseract: <a href="https://stackoverflow.com/questions/46140485/tesseract-installation-in-windows">``https://stackoverflow.com/questions/46140485/tesseract-installation-in-windows``</a><br>
--Edit your ships weapon configuration in the settings.json<br>
--Install the following modules using pip:<br>
-``pip install pyautogui keyboard colorama datetime requests pytesseract opencv-python pypiwin32``<br>
+- Edit your ships weapon configuration in the settings.json<br>
+- Install the following modules using pip:<br>
+``pip install pyautogui keyboard colorama datetime requests opencv-python pypiwin32 mss easyocr customtkinter``<br>
 
 # How to use
 
@@ -11,11 +9,11 @@ Run ``python PGBot.py`` (Or on windows just start run.bat to start the bot)<br>
 Make sure to have Pirate Galaxy open on your main monitor.<br>
 
 # Settings
+
+You can also adjust the settings inside the GUI after starting the bot.
+
 ```
 {
-    "tesseract": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-    "conApi": "",
-    "username": "",
     "priority": [
         "enemy",
         "loot",
@@ -74,21 +72,30 @@ Make sure to have Pirate Galaxy open on your main monitor.<br>
             "beacon",
             "stundome"
         ],
+        "sniper": [
+            "blaster",
+            "collector",
+            "repair",
+            "afterburner",
+            "sniper",
+            "attackdroid",
+            "orbitalstrike",
+            "dmgbuff"
+        ],
         "custom": [
             "blaster",
             "collector",
             "repair",
             "afterburner",
-            "scramble",
-            "protector",
-            "stundome",
-            "orbitalstrike"
+            "sniper",
+            "",
+            "orbitalstrike",
+            ""
         ]
     }
 }
 ```
--Change "tesseract" to be the location of your tesseract installation.<br>
--"conApi" and "username" can be left empty.<br>
--Change "skillset" to any of the lists.<br>
+
+- Change "skillset" to any of the presets in list.<br>
 Possible Skills:<br>
-``blaster, collector, repair, afterburner, rocket, orbitalstrike, aggrobomb, mine, stundome, stickybomb, magnettrap, shield, protector, scramble, aggrobeacon, stun, thermoblast, taunt, sniper, attackdroid, speedactuator, aimcomp, perforator", dmgbuff, lightningchain``
+``blaster, collector, repair, afterburner, rocket, orbitalstrike, aggrobomb, mine, stundome, stickybomb, magnettrap, shield, protector, scramble, aggrobeacon, stun, thermoblast, taunt, sniper, attackdroid, speedactuator, aimcomp, perforator, dmgbuff, lightningchain``

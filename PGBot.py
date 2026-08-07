@@ -1,77 +1,67 @@
 ###################
 # Made by Eclip5e #
 ###################
-
-# Check installed Modules
-import re, sys, os
-import subprocess
-import pkg_resources
+import sys
+import json
+import threading
+import time
+import keyboard
+import cv2 as cv
+from bot import PGBot
+from gui import App
 
 sys.dont_write_bytecode = True
 
-from importer import Importer
-Importer.verifyLibs({'pyautogui', 'keyboard', 'colorama', 'datetime', 'requests', 'pytesseract', 'opencv-python', 'pypiwin32'})
+def main():
+    # Load Settings
+    try:
+        with open('settings.json') as f:
+            settings = json.load(f)
+    except FileNotFoundError:
+        print("settings.json not found! Please create it.")
+        return
 
-# Import Modules
-from colorama import Fore, Back, Style
-from bot import PGBot, BotState
-from time import sleep, time
-import colorama
-import pyautogui
-import json
-import keyboard
-import cv2 as cv
-import numpy as np
+    # Vars
+    version = '0.4.1'
+    appName = 'Pirate Galaxy Bot'
 
-# Load Settings
-with open('settings.json') as f:
-	settings = json.load(f)
+    # Initialize Bot
+    bot = PGBot(settings, appName, version)
 
-# Vars
-version = '0.3.1'
-appName = 'Pirate Galaxy Bot'
+    # Initialize GUI
+    app = App(bot)
+    
+    # Set the callback so the bot can log to the GUI
+    bot.set_gui_callback(app.log_message)
 
-colorama.init()
-bot = PGBot(settings, appName, version)
+    def background_loop():
+        while True:
+            # Check if app is destroyed
+            if not hasattr(app, 'winfo_exists') or not app.winfo_exists():
+                break
 
-# Start Bot
-bot.terminal(f'{appName} v{version}', 'info')
-bot.terminal('Made by Eclip5e\n', 'info')
-bot.terminal('Initializing...')
+            if not bot.paused and not bot.stopped:
+                # Update bots targets
+                bot.update_targets()
 
-sleep(1)
-bot.start()
+            time.sleep(0.1)
 
-# Main Loop
-loop_time = time()
-while(True):
-	if not bot.paused:
-		# Update bots targets
-		bot.update_targets()
+    # Use keyboard hooks for instant response
+    def on_quit():
+        import os
+        os._exit(0)
 
-		# Show FPS
-		#print('FPS {}'.format(1 / (time() - loop_time)))
-		loop_time = time()
+    def on_pause():
+        app.after(0, app.toggle_pause)
 
-		# Print HP and Energy
-		print(f'{Fore.GREEN}HP: {bot.plr_hp} | {Fore.LIGHTCYAN_EX}Energy: {bot.plr_energy}{Fore.WHITE}{bot.ws}', end='\r')
-	else:
-		sleep(0.2)
+    keyboard.add_hotkey('q', on_quit)
+    keyboard.add_hotkey('p', on_pause)
 
-	# Hotkeys
-	if keyboard.is_pressed('q'): # Quit
-		bot.stop()
-		cv.destroyAllWindows()
-		break
-	if keyboard.is_pressed('p'): # Pause
-		if bot.paused:
-			bot.paused = False
-			print(f'{Fore.LIGHTCYAN_EX}Unpaused{Fore.WHITE}{bot.ws}', end='\r')
-			sleep(1)
-		else:
-			bot.paused = True
-			print(f'{Fore.LIGHTCYAN_EX}Paused{Fore.WHITE}{bot.ws}', end='\r')
-			sleep(1)
+    t = threading.Thread(target=background_loop, daemon=True)
+    t.start()
+    
+    # Start the App
+    app.mainloop()
 
-# Quit Application
-bot.terminal(f'\nQuit', 'danger')
+if __name__ == "__main__":
+    main()

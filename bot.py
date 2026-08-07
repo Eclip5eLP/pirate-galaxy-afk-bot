@@ -3,466 +3,479 @@
 # Made by Eclip5e #
 ###################
 
-import re, sys, os
-import subprocess
-import pkg_resources
-
-sys.dont_write_bytecode = True
-
+import sys, os
 from time import sleep, time
 from threading import Thread, Lock
-from colorama import Fore
-from PIL import Image
 from pathlib import Path
 import datetime
 import cv2 as cv
-import pyautogui
-import colorama
-import keyboard
-import random
-import win32api, win32ui, win32con
-import pytesseract
 import numpy as np
 import math
+import mss
+import keyboard
+import win32api, win32con
+import easyocr
+import random
+
+sys.dont_write_bytecode = True
 
 class BotState:
-	INIT = 0
-	FARMING = 1
-	FLEEING = 2
+    INIT = 0
+    FARMING = 1
+    FLEEING = 2
 
 class PGBot:
+    INIT_TIME = 2
 
-	INIT_TIME = 2
+    def __init__(self, settings, appName, version):
+        self.lock = Lock()
 
-	stopped = True
-	lock = None
+        self.state = BotState.INIT
+        self.timestamp = time()
+        self.updated = True
+        self.version = version
+        self.appName = appName
+        
+        self.stopped = True
+        self.paused = False
 
-	state = None
-	timestamp = None
+        self.minimapLoc = [0,0]
+        self.presets = settings.get('presets', {"custom": ["blaster","collector","repair","afterburner","","","",""]})
+        self.skillset_name = settings.get('skillset', 'custom')
+        
+        # Fallback to custom if the skillset doesn't exist
+        if self.skillset_name not in self.presets:
+            self.skillset_name = 'custom'
+            
+        self.skills = self.presets[self.skillset_name]
 
-	appName = 'UnknownAppOrigin'
-	version = '0.1'
-	pytesseract.pytesseract.tesseract_cmd = ''
-	minimapLoc = [0,0]
-	updated = False
-	paused = False
+        self.plr_energy = 0
+        self.plr_hp = 100
+        self.dtime = [0,0,0,0,0] # Energy, HP, Map, Collector, NavMenu
+        self.outliers = [0,0,0,0]
+        self.objectCount = 0
+        self.objectPrio = settings.get('priority', ["enemy","loot","enemyIdle"])
+        self.objectPixel = settings.get('search', {"enemy": [135,27,11],"enemyIdle": [162,151,15],"loot": [19,193,217]})
+        self.healOnHp = settings.get('healOnHp', 25)
+        self.defendOnHp = settings.get('defendOnHp', 45)
+        self.runOnHp = settings.get('runOnHp', 10)
+        self.lowEnergy = settings.get('lowEnergy', 1000)
+        self.occasionalSkill = settings.get('occasionalSkill', 150)
 
-	plr_energy = 0
-	plr_hp = 0
-	dtime = [0,0,0,0,0] # Energy, HP, Map, Collector, NavMenu
-	outliers = [0,0,0,0]
-	lastChat = []
+        self.targets = False
+        self.lastPrint = ''
+        self.ui_cache = {}
+        
+        self.last_used = {}
+        self.cooldowns = {
+            "rocket": 15, "orbitalstrike": 38, "stun": 75, "thermoblast": 90, 
+            "taunt": 90, "sniper": 6, "attackdroid": 290, "speedactuator": 140, 
+            "aimcomp": 105, "perforator": 92, "dmgbuff": 142, "shield": 100, 
+            "protector": 60, "scramble": 83, "aggrobomb": 95, "mine": 35, 
+            "stundome": 110, "stickybomb": 80, "magnettrap": 180, "aggrobeacon": 165,
+            "afterburner": 15, "repair": 10, "collector": 5
+        }
+        self.global_cooldown = 0
+        
+        self.gui_callback = None
+        
+        self.techTree = {"aoe": ["rocket", "orbitalstrike", "aggrobomb", "mine", "stundome", "stickybomb", "magnettrap", "aggrobeacon"], "defend": ["shield", "protector", "scramble"], "single": ["rocket", "orbitalstrike", "stun", "thermoblast", "taunt", "sniper", "attackdroid"], "buff": ["speedactuator", "aimcomp", "perforator", "dmgbuff"]}
 
-	targets = False
-	lastPrint = '';
-	ws = "                     "
+        # Initialize MSS for screen capture
+        self.sct = mss.mss()
+        
+        # Initialize EasyOCR for numbers in a background thread
+        self.ocr_ready = False
+        self.reader = None
+        Thread(target=self._init_ocr, daemon=True).start()
 
-	techTree = {"aoe": ["rocket", "orbitalstrike", "aggrobomb", "mine", "stundome", "stickybomb", "magnettrap", "aggrobeacon"], "defend": ["shield", "protector", "scramble"], "single": ["rocket", "orbitalstrike", "stun", "thermoblast", "taunt", "sniper", "attackdroid"], "buff": ["speedactuator", "aimcomp", "perforator", "dmgbuff"]}
+    def _init_ocr(self):
+        self.terminal("Initializing EasyOCR... (This may take a moment)", "info")
+        self.reader = easyocr.Reader(['en'], gpu=True)
+        self.ocr_ready = True
+        self.terminal("EasyOCR Ready!", "info")
 
-	# Init
-	def __init__(self, settings, appName, version):
-		self.lock = Lock()
+    def set_gui_callback(self, callback):
+        self.gui_callback = callback
 
-		self.state = BotState.INIT
-		self.timestamp = time()
-		self.updated = True
+    def update_targets(self):
+        if not self.checkTimePassed(2, 1):
+            return
 
-		self.version = version
-		pytesseract.pytesseract.tesseract_cmd = settings.get('tesseract', "C:/Program Files/Tesseract-OCR/tesseract.exe")
+        targets = self.findObject(True)
+        with self.lock:
+            self.targets = targets
+            self.updated = True
 
-		self.appName = appName
-		self.minimapLoc = [0,0]
-		presets = settings.get('presets', {"custom": ["blaster","collector","repair","afterburner","","","",""]})
-		self.skills = presets[settings.get('skillset', 'custom')]
+        if (self.plr_hp <= self.healOnHp):
+            self.skill(self.checkSkill("repair"))
 
-		self.plr_energy = 0
-		self.plr_hp = 100
-		self.outliers = [0,0,0,0]
-		self.lastChat = []
-		self.objectCount = 0
-		self.objectPrio = settings.get('priority', ["enemy","loot","enemyIdle"])
-		self.objectPixel = settings.get('search', {"enemy": [135,27,11],"enemyIdle": [162,151,15],"loot": [19,193,217]})
-		self.healOnHp = settings.get('healOnHp', 25)
-		self.defendOnHp = settings.get('defendOnHp', 45)
-		self.runOnHp = settings.get('runOnHp', 10)
-		self.lowEnergy = settings.get('lowEnergy', 1000)
-		self.occasionalSkill = settings.get('occasionalSkill', 150)
+    def start(self):
+        self.stopped = False
+        t = Thread(target=self.run)
+        t.daemon = True
+        t.start()
+        self.terminal('Bot started', 'info')
 
-		if not Path(pytesseract.pytesseract.tesseract_cmd).exists():
-			self.terminal(f'Cant find pytesseract!', 'danger')
-			exit()
+    def stop(self):
+        self.stopped = True
 
-	# Find targets on minimap
-	def update_targets(self):
-		if not self.checkTimePassed(2, 1):
-			return
+    def run(self):
+        while not self.stopped:
+            if self.paused:
+                sleep(0.2)
+                continue
 
-		targets = self.findObject(True)
-		self.lock.acquire()
-		self.targets = targets
-		self.updated = True
-		self.lock.release()
+            if self.state == BotState.INIT:
+                if time() > self.timestamp + self.INIT_TIME:
+                    with self.lock:
+                        self.state = BotState.FARMING
 
-		# Check HP with updating and using resources
-		if (self.plr_hp <= self.healOnHp):
-			self.skill(self.checkSkill("repair"))
+            elif self.state == BotState.FARMING:
+                if self.checkTimePassed(0, 15):
+                    if self.checkEnergy():
+                        self.terminal(f'Low Energy! ({self.plr_energy})', 'danger')
 
-	# Start the bot
-	def start(self):
-		self.stopped = False
-		t = Thread(target=self.run)
-		t.start()
-		print(f'{Fore.GREEN}Bot started{Fore.WHITE}')
+                self.checkHP()
 
-	# Stop the bot
-	def stop(self):
-		self.stopped = True
+                # Check if Nav Menu is open
+                if self.checkTimePassed(4, 45):
+                    if self.search('orbit') is not None:
+                        navmenu = self.search('navmenu')
+                        if navmenu is not None:
+                            self.click(navmenu[0] + 5, navmenu[1] + 5)
 
-	# Main Bot Logic
-	def run(self):
-		while not self.stopped:
-			if self.paused: # Paused
-				sleep(0.2)
-				continue
-
-			if self.state == BotState.INIT: # Initializing
-				if time() > self.timestamp + self.INIT_TIME:
-					self.lock.acquire()
-					self.state = BotState.FARMING
-					self.lock.release()
-
-			elif self.state == BotState.FARMING: # Farming
-				# Check Energy
-				if self.checkTimePassed(0, 30):
-					if self.checkEnergy():
-						self.terminal(f'Low Energy! ({self.plr_energy})', 'danger')
-
-				self.checkHP()
-
-				# Check if Nav Menu is open
-				if self.checkTimePassed(4, 45):
-					if self.search('orbit') != False:
-						navmenu = self.search('navmenu')
-						if navmenu != False:
-							self.click(navmenu.left + 5, navmenu.top + 5)
-
-				# Battle and Collect
-				if self.targets != False:
-					# Ignore idle targets if energy is low or if below low hp threshold
-					if self.targets[2] == 'enemyIdle' and (self.plr_energy <= self.lowEnergy or self.plr_hp <= self.healOnHp):
-						continue
+                # Battle and Collect
+                if self.targets is not False:
+                    # Ignore idle targets if energy is low or if below low hp threshold
+                    if self.targets[2] == 'enemyIdle' and (self.plr_energy <= self.lowEnergy or self.plr_hp <= self.healOnHp):
+                        continue
 
 					# Use Collector to prevent softlock
-					if self.checkTimePassed(3, 4):
-						self.skill(self.checkSkill("collector"))
+                    if self.checkTimePassed(3, 4):
+                        self.skill(self.checkSkill("collector"))
 
-					try:
-						if self.updated:
-							self.moveTo(self.targets)
-							self.lock.acquire()
-							self.updated = False
-							self.lock.release()
-						self.interact(self.targets[2])
-					except Exception:
-						pass # Ignore
+                    try:
+                        if self.updated:
+                            self.moveTo(self.targets)
+                            with self.lock:
+                                self.updated = False
+                        self.interact(self.targets[2])
+                    except Exception:
+                        pass 
 
-			elif self.state == BotState.FLEEING: # Fleeing
-				self.checkHP()
+            elif self.state == BotState.FLEEING:
+                self.checkHP()
+                self.useTech("afterburner")
+                self.useTech("repair")
 
-				self.skill(self.checkSkill("afterburner"))
-				self.skill(self.checkSkill("repair"))
+                if self.plr_hp >= math.ceil(self.healOnHp / 2):
+                    with self.lock:
+                        self.state = BotState.FARMING
 
-				if self.plr_hp >= math.ceil(self.healOnHp / 2):
-					self.lock.acquire()
-					self.state = BotState.FARMING
-					self.lock.release()
+    #---# Helper Scripts #---#
+    def click(self, x, y):
+        win32api.SetCursorPos((int(x), int(y)))
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN,0,0)
+        sleep(0.1)
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP,0,0)
 
-	#---# Helper Scripts #---#
+    def doubleclick(self, x, y):
+        self.click(x,y)
+        self.click(x,y)
 
-	# Click Function
-	def click(self, x,y):
-		win32api.SetCursorPos((x,y))
-		win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN,0,0)
-		sleep(0.1)
-		win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP,0,0)
+    def getNum(self, image_np):
+        if not self.ocr_ready or self.reader is None:
+            return ""
+        # image_np is expected to be a numpy array (RGB or Grayscale)
+        result = self.reader.readtext(image_np, allowlist='0123456789,')
+        if len(result) > 0:
+            text = result[0][1]
+            return text
+        return ""
 
-	# Double Click
-	def doubleclick(self, x,y):
-		self.click(x,y)
-		self.click(x,y)
+    def mss_screenshot(self, region=None):
+        # region format: (left, top, width, height)
+        if region:
+            monitor = {"top": int(region[1]), "left": int(region[0]), "width": int(region[2]), "height": int(region[3])}
+        else:
+            monitor = self.sct.monitors[1] # Primary monitor
+            
+        sct_img = self.sct.grab(monitor)
+        # Convert to numpy array
+        img = np.array(sct_img)
+        # Convert BGRA to RGB
+        img = cv.cvtColor(img, cv.COLOR_BGRA2RGB)
+        return img
 
-	# Get Text from Image
-	def getText(self, image):
-		return pytesseract.image_to_string(image, lang='eng', config='--psm 6')
-
-	# Get Numbers from Image
-	def getNum(self, image):
-		nums = pytesseract.image_to_string(image, config='-c tessedit_char_whitelist=0123456789')
-		if nums == " ":
-			nums = pytesseract.image_to_string(image, config='--psm 10 --oem 3 -c tessedit_do_invert=0 -c tessedit_char_whitelist=0123456789')
-		if nums == " ":
-			return "0"
-		return nums
-
-	# Check a Pixel for its RGB values
-	def isPixel(self, x,y,c):
-		if pyautogui.pixel(x,y)[0] == c[0] and pyautogui.pixel(x,y)[1] == c[1] and pyautogui.pixel(x,y)[2] == c[2]:
-			return True
-		return False
-
-	# Find Pixel in Image
-	def imgFindPixel(self, img, c, findAll = False):
-		width, height = img.size
-		listAll = []
-		for x in range(width):
-			for y in range(height):
-				pix = img.getpixel((x,y))
-				if pix[0] == c[0] and pix[1] == c[1] and pix[2] == c[2]:
-					if findAll:
-						listAll.append([x,y])
-					else:
-						return [x,y]
-		if findAll:
-			if len(listAll) != 0:
-				return listAll
-		return False
+    def imgFindPixel(self, img, c, findAll = False):
+        # img is RGB numpy array
+        mask = np.all(img[:, :, :3] == c, axis=-1)
+        coords = np.argwhere(mask)
+        if coords.size > 0:
+            results = coords[:, [1, 0]].tolist()
+            return results if findAll else results[0]
+        return False
 
 	# Find Object on Minimap
-	def minimapFind(self, find, nearest = False):
-		minimap = self.search('minimap')
-		if minimap != False:
-			self.minimapLoc = [minimap.left + 25, minimap.top - 100]
-			minimap = pyautogui.screenshot('./data/search/minimap.png', region=(minimap.left + 25, minimap.top - 100, 115, 115))
-			found = self.imgFindPixel(minimap, find, nearest)
-			if found != False:
-				if nearest == False:
-					return found
-			else:
-				return False
-		else:
-			return False
+    def minimapFind(self, find, nearest = False):
+        minimap = self.search('minimap')
+        if minimap is not None:
+            self.minimapLoc = [minimap[0] + 25, minimap[1] - 100]
+            minimap_img = self.mss_screenshot(region=(self.minimapLoc[0], self.minimapLoc[1], 115, 115))
+            found = self.imgFindPixel(minimap_img, find, nearest)
+            if found is not False:
+                if nearest == False:
+                    return found
+            else:
+                return False
+        else:
+            return False
 
 		# Return nearest
-		self.objectCount = len(found)
-		center = [115 / 2, 115 / 2]
-		near = []
-		for loc in found:
-			if near == []:
-				near = loc
-			else:
-				new_dist = abs(loc[0] - center[0]) + abs(loc[1] - center[1])
-				old_dist = abs(near[0] - center[0]) + abs(near[1] - center[1])
-				if new_dist < old_dist:
-					near = loc
-		return near
+        self.objectCount = len(found)
+        center = [115 / 2, 115 / 2]
+        near = []
+        for loc in found:
+            if near == []:
+                near = loc
+            else:
+                new_dist = abs(loc[0] - center[0]) + abs(loc[1] - center[1])
+                old_dist = abs(near[0] - center[0]) + abs(near[1] - center[1])
+                if new_dist < old_dist:
+                    near = loc
+        return near
 
-	# Image recognition
-	def search(self, img, conf=0.8):
-		simg = pyautogui.locateOnScreen('./data/images/' + img + '.png', confidence=conf)
-		if simg != None:
-			return simg
-		else:
-			return False
+    # Image recognition
+    def search(self, img_name, conf=0.8):
+        template_path = f'./data/images/{img_name}.png'
+        if not os.path.exists(template_path):
+            return None
+        
+        template = cv.imread(template_path, cv.IMREAD_COLOR)
+        if template is None:
+            return None
+            
+        template = cv.cvtColor(template, cv.COLOR_BGR2RGB)
+        
+        # Check cache first
+        if img_name in self.ui_cache:
+            loc = self.ui_cache[img_name]
+            h, w, _ = template.shape
+            verify_region = (max(0, loc[0] - 10), max(0, loc[1] - 10), w + 20, h + 20)
+            screen_small = self.mss_screenshot(region=verify_region)
+            result = cv.matchTemplate(screen_small, template, cv.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv.minMaxLoc(result)
+            if max_val >= conf:
+                new_loc = (verify_region[0] + max_loc[0], verify_region[1] + max_loc[1])
+                self.ui_cache[img_name] = new_loc
+                return new_loc
 
-	# Check Energy and notify User; returns true if energy is low or below num
-	def checkEnergy(self, num = None):
-		if num is None:
-			num = self.lowEnergy
+        # If not in cache or verification failed, do full screen search
+        screen = self.mss_screenshot()
+        result = cv.matchTemplate(screen, template, cv.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv.minMaxLoc(result)
+        
+        if max_val >= conf:
+            self.ui_cache[img_name] = max_loc
+            return max_loc
+        return None
 
-		find = self.search('energy', 0.72)
-		if find != False:
-			cenergy = pyautogui.screenshot('./data/search/energy.png', region=(find.left - 100, find.top, 100, 20))
-			cenergy = self.getNum(Image.open('./data/search/energy.png')).replace('\x0c', '').replace('\n', '').replace(',','')
-			if cenergy == '' or cenergy == ' ':
-				cenergy = 10000
-			else:
-				try:
-					cenergy = int(cenergy)
-				except Exception:
-					cenergy = 0
+    def checkEnergy(self, num = None):
+        if num is None:
+            num = self.lowEnergy
+
+        find = self.search('energy', 0.72)
+        if find is not None:
+            cenergy_img = self.mss_screenshot(region=(find[0] - 100, find[1], 100, 20))
+            cenergy_img = cv.resize(cenergy_img, (0,0), fx=2, fy=2, interpolation=cv.INTER_CUBIC)
+            cenergy_str = self.getNum(cenergy_img).replace(' ', '').replace(',', '')
+            
+            try:
+                cenergy = int(cenergy_str)
+            except Exception:
+                cenergy = 0
 
 			# Statistical outliers
-			if self.outliers[2] - cenergy >= 1000 and self.outliers[3] <= 2:
-				cenergy = self.outliers[2]
-				nout = self.outliers[3] + 1
-			else:
-				nout = 0
+            if self.outliers[2] - cenergy >= 1000 and self.outliers[3] <= 2:
+                cenergy = self.outliers[2]
+                nout = self.outliers[3] + 1
+            else:
+                nout = 0
 
-			self.lock.acquire()
-			self.outliers[3] = nout
-			self.plr_energy = cenergy
-			self.outliers[2] = cenergy
-			self.lock.release()
+            with self.lock:
+                self.outliers[3] = nout
+                self.plr_energy = cenergy
+                self.outliers[2] = cenergy
 
-			if (cenergy <= num):
-				return True
-			return False
-		else:
-			#self.terminal('Cant find Interface', 'danger')
-			self.plr_energy = 10000
-			return False
+            if (cenergy <= num):
+                return True
+            return False
+        else:
+            self.plr_energy = 10000
+            return False
 
-	# Find Energy
-	def findEnergy(self):
-		return False
+    # Find Energy
+    def findEnergy(self):
+        return False
 
-	# Find Objects
-	def findObject(self, nearest = False):
-		for obj in self.objectPrio:
-			find = self.minimapFind(self.objectPixel[obj], nearest)
-			if find != False:
-				find.append(obj)
-				return find
-
-		self.objectCount = 0
-		return False
+    # Find Objects
+    def findObject(self, nearest = False):
+        for obj in self.objectPrio:
+            find = self.minimapFind(self.objectPixel[obj], nearest)
+            if find is not False:
+                if isinstance(find, list):
+                    if len(find) > 0 and isinstance(find[0], list):
+                        find = find[0] # Take first if multiple
+                    find.append(obj)
+                    return find
+        self.objectCount = 0
+        return False
 
 	# Move to Position and avoid obstacles
-	def moveTo(self, pos = False):
-		if pos == False:
-			return False
-
-		# Obstacle evasion
-
-		# Move
-		self.click(self.minimapLoc[0] + pos[0] - 1, self.minimapLoc[1] + pos[1])
+    def moveTo(self, pos = False):
+        if pos == False:
+            return False
+        self.click(self.minimapLoc[0] + pos[0] - 1, self.minimapLoc[1] + pos[1])
 
 	# Check HP and heal if needed
-	def checkHP(self):
-		if not self.checkTimePassed(1, 2):
-			if (self.plr_hp <= self.healOnHp):
-				self.skill(self.checkSkill("repair"))
-				return True
-			return False
+    def checkHP(self):
+        if not self.checkTimePassed(1, 2):
+            if (self.plr_hp <= self.healOnHp):
+                self.skill(self.checkSkill("repair"))
+                return True
+            return False
 
-		find = self.search('minimap')
-		if find != False:
-			chp = pyautogui.screenshot('./data/search/hp.png', region=(find.left - 25, find.top + 5, 20, 15))
-			newImg = Image.new('RGB', (2*chp.size[0], chp.size[1]), (250,250,250))
-			newImg.paste(chp,(0,0))
-			newImg.paste(chp,(chp.size[0],0))
-			newImg.save("./data/search/hp.png", "PNG")
+        find = self.search('minimap')
+        if find is not None:
+            chp_img = self.mss_screenshot(region=(find[0] - 25, find[1] + 5, 20, 15))
+            
+            # Upscale the image slightly to help OCR accuracy
+            chp_img = cv.resize(chp_img, (0,0), fx=2, fy=2, interpolation=cv.INTER_CUBIC)
+            chp_str = self.getNum(chp_img).replace(' ', '').replace(',', '')
+            
+            if chp_str != '':
+                try:
+                    chp = int(chp_str)
+                except:
+                    chp = 100
 
-			chp = self.getNum(Image.open('./data/search/hp.png')).replace('\n', '').replace('\x0c', '').replace('|', '')
-			chp = chp[0:int(len(chp)/2)]
-			if chp != '' and chp != ' ':
-				chp = int(chp)
+                with self.lock:
+                    self.plr_hp = chp
 
-				if chp == 1 or chp == 2:
-					return False
-
-				self.lock.acquire()
-				self.plr_hp = chp
-				self.lock.release()
-
-				if (chp <= self.healOnHp):
-					self.skill(self.checkSkill("repair"))
-					#self.terminal(f'Low HP ({self.plr_hp})', 'danger')
-					return True
-			else:
-				self.lock.acquire()
-				self.plr_hp = 100
-				self.lock.release()
-			return False
-		else:
-			return False
+                if (chp <= self.healOnHp):
+                    self.skill(self.checkSkill("repair"))
+                    return True
+            else:
+                with self.lock:
+                    self.plr_hp = 100
+            return False
+        else:
+            return False
 
 	# Decide action based on findings
-	def interact(self, act):
+    def interact(self, act):
 		# Collect Loot
-		if act == "loot":
-			self.skill(self.checkSkill("collector"))
+        if act == "loot":
+            self.skill(self.checkSkill("collector"))
 
 		# Attack Enemy
-		if act == "enemy" or act == "enemyIdle":
+        if act == "enemy" or act == "enemyIdle":
 
 			# Interaction types
-			self.interactType('aoe')
-			self.interactType('defend')
-			self.interactType('single')
-			self.interactType('buff')
+            self.interactType('aoe')
+            self.interactType('defend')
+            self.interactType('single')
+            self.interactType('buff')
 
 			# Run
-			if self.plr_hp <= self.runOnHp:
-				self.lock.acquire()
-				self.state = BotState.FLEEING
-				self.lock.release()
+            if self.plr_hp <= self.runOnHp:
+                with self.lock:
+                    self.state = BotState.FLEEING
 
 			# Always Attack fallback
-			self.skill(1)
+            #self.skill_force(1)
+            self.skill(self.checkSkill("blaster"))
 
-	# Interaction types
-	def interactType(self, itype):
-		techs = []
-		for tech in self.techTree[itype]:
-			if self.checkSkill(tech):
-				techs.append(tech)
+    # Interaction types
+    def interactType(self, itype):
+        cond_aoe = self.objectCount >= 2
+        cond_defend = self.plr_hp <= self.defendOnHp
+        
+        should_use = False
+        if itype == 'aoe' and cond_aoe:
+            should_use = True
+        elif itype == 'defend' and cond_defend:
+            should_use = True
+        elif itype == 'single' or itype == 'buff':
+            should_use = True
+            
+        if not should_use:
+            return
+            
+        for tech in self.techTree[itype]:
+            if self.checkSkill(tech):
+                if self.useTech(tech):
+                    return
 
-		cond_aoe = self.objectCount >= 3 and len(techs) > 0
-		cond_defend = self.plr_hp <= self.defendOnHp and len(techs) > 0
-		cond_occasion = random.randint(1, self.occasionalSkill) == 1 and len(techs) > 0
-
-		if (itype == 'aoe' and cond_aoe) or (itype == 'defend' and cond_defend) or ((itype == 'single' or itype == 'buff') and cond_occasion):
-			self.skill(self.checkSkill(techs[random.randint(0, len(techs) - 1)]))
+    # Use a skill with internal cooldowns
+    def useTech(self, tech_name):
+        current_time = time()
+        cd = self.cooldowns.get(tech_name, 10)
+        
+        if current_time - self.last_used.get(tech_name, 0) >= cd:
+            if self.skill(self.checkSkill(tech_name)):
+                self.last_used[tech_name] = current_time
+                return True
+        return False
 
 	# Check if User has Skill
-	def checkSkill(self, check):
-		index = 1
-		for a in self.skills:
-			if check == a:
-				return index
-			index += 1
-		return False
+    def checkSkill(self, check):
+        index = 1
+        for a in self.skills:
+            if check == a:
+                return index
+            index += 1
+        return False
 
 	# Use a Skill
-	def skill(self, num):
-		if num == False or num < 1 or num > 8:
-			return False
-		keyboard.press(str(num))
-		sleep(0.1)
-		keyboard.release(str(num))
-		# find = self.search('chatWindow')
-		# if find != False:
-		# 	keyboard.press(str(num))
-		# 	sleep(0.1)
-		# 	keyboard.release(str(num))
-		# else:
-		# 	return False
+    def skill(self, num):
+        if num == False or num < 1 or num > 8:
+            self.terminal(f"Skill {num} invalid", "error")
+            return False
 
-	# Send Decoy Message
-	def chatSend(self, msg):
-		find = self.search('chatWindow')
-		if find != False:
-			self.click(find.left + 200, find.top + 5)
-			keyboard.write(msg)
-			keyboard.press('enter')
-			sleep(0.1)
-			keyboard.release('enter')
+        # Enforce 1s Global Cooldown
+        if time() - self.global_cooldown < 0.9:
+            return False
 
-	# Print to local and remote Terminal
-	def terminal(self, text, type='text'):
-		col = Fore.WHITE
-		if type == 'info':
-			col = Fore.LIGHTCYAN_EX
-		if type == 'warn':
-			col = Fore.YELLOW
-		if type == 'danger':
-			col = Fore.LIGHTRED_EX
+        self.skill_force(num)
 
-		ptext = f'{col}{text}{Fore.WHITE}{self.ws}'
-		if text != self.lastPrint:
-			print(ptext)
+        self.global_cooldown = time()
+        return True
+    
+    # Force to use a Skill
+    def skill_force(self, num):
+        keyboard.press(str(num))
+        sleep(0.1)
+        keyboard.release(str(num))
 
-			self.lock.acquire()
-			self.lastPrint = ptext
-			self.lock.release()
-		return True
+    def terminal(self, text, type='info'):
+        if text != self.lastPrint:
+            text_final = f"[{type.upper()}] {text}"
+            if self.gui_callback:
+                self.gui_callback(text_final, type)
+            else:
+                print(text_final)
+
+            with self.lock:
+                self.lastPrint = text
+        return True
 
 	# Check time passed since last check
-	def checkTimePassed(self, delta, secs):
-		if self.dtime[delta] == 0:
-			self.dtime[delta] = datetime.datetime.fromtimestamp(self.dtime[delta])
-		if datetime.timedelta.total_seconds(datetime.datetime.now()-self.dtime[delta]) >= secs:
-			self.dtime[delta] = datetime.datetime.now()
-			return True
-		return False
+    def checkTimePassed(self, delta, secs):
+        if self.dtime[delta] == 0:
+            self.dtime[delta] = datetime.datetime.now() - datetime.timedelta(seconds=secs)
+        if datetime.timedelta.total_seconds(datetime.datetime.now()-self.dtime[delta]) >= secs:
+            self.dtime[delta] = datetime.datetime.now()
+            return True
+        return False
