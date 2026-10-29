@@ -21,11 +21,26 @@
             217
         ]
     },
+    "colorTolerance": 12,
     "healOnHp": 30,
     "defendOnHp": 80,
     "runOnHp": 10,
+    "fleeUntilHp": 50,
     "lowEnergy": 1000,
-    "occasionalSkill": 150,
+    "skillInterval": 0.9,
+    "moveInterval": 0.25,
+    "moveDeadzone": 2,
+    "fleeDistance": 45,
+    "aoeRadius": 0,
+    "clickOffset": [
+        0,
+        0
+    ],
+    "hotkeys": {
+        "pause": "ctrl+shift+p",
+        "quit": "ctrl+shift+q"
+    },
+    "cooldowns": {},
     "skillset": "chromian",
     "presets": {
         "storm": [
@@ -36,7 +51,7 @@
             "afterburner",
             "aimcomp",
             "perforator",
-            "thermo"
+            "thermoblast"
         ],
         "tank": [
             "blaster",
@@ -65,7 +80,7 @@
             "afterburner",
             "speedactuator",
             "stun",
-            "beacon",
+            "aggrobeacon",
             "stundome"
         ],
         "sniper": [
